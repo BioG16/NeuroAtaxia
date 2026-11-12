@@ -1,0 +1,256 @@
+# mntb_hh_kv3_neuron - Step 1: neurone base di tipo Hodgkin-Huxley (MNTB)
+# ######################################################################
+#
+# DESCRIZIONE
+# +++++++++++
+# Modello a singolo compartimento con quattro correnti (come nello step 1
+# dello schema "From literature to the NESTML model"):
+#
+#     I_Na   : corrente di sodio            (m^3 * h)
+#     I_LT   : potassio a bassa soglia      (l * r)
+#     I_Kv3  : potassio ad alta soglia Kv3  (n^3 * (0.8 + 0.2 p))
+#     I_L    : corrente di leak
+#
+# I parametri e le equazioni vengono dalla REF1:
+#   Macica CM et al. (2003). Modulation of the Kv3.1b potassium channel
+#   isoform adjusts the fidelity of the firing pattern of auditory neurons.
+#   J Neurosci 23(4):1133-1141   (sezione "Numerical simulations")
+#
+# COSA HO CAMBIATO RISPETTO AL MODELLO hh_psc_alpha (solo sodio)
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#  1. Rimossa la mutazione (p_mut, I_NaMut): appartiene allo step 3 / sodio.
+#  2. I_Na ora usa i parametri della REF1 (g_Na = 0.5 uS, E_Na = 50 mV).
+#  3. Aggiunte I_LT (gate l, r) e I_Kv3 (gate n, p): 4 nuove variabili di stato.
+#  4. Il leak usa g_L = 0.002 uS e E_L = -63 mV (REF1).
+#  5. Le costanti di velocita' dei gate NON sono piu' quelle classiche di
+#     Hodgkin-Huxley (1952), ma hanno la forma esponenziale della REF1:
+#         alpha(V) = k_alpha * exp(eta_alpha * V)
+#         beta(V)  = k_beta  * exp(eta_beta  * V)
+#     con V in mV, k in 1/ms, eta in 1/mV.
+#  6. C_m = 0.01 nF = 10 pF (REF1).
+#  7. Tolti i parametri/gate "alpha_x_init" in forma HH classica e sostituiti
+#     con quelli calcolati dalle nuove costanti (sezione internals).
+#
+# NOTE SULLA REF1 (il testo estratto dal PDF perde i segni "-")
+# +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#  - Nelle formule della REF1 le correnti sono scritte come g*(E - V).
+#    In NESTML si usa la convenzione g*(V - E) con segno meno davanti a tutte
+#    le correnti in dV/dt: e' la stessa cosa.
+#  - E_K = -80 mV e E_L = -63 mV (nel PDF compaiono come "(-80 - V)" e
+#    "(-63 - V)"). Il potenziale di riposo misurato e' circa -64 mV.
+#  - eta_beta_r = -0.0047 /mV: il segno e' quello riportato nel testo della
+#    REF1 (immagine). Con eta_alpha_r e eta_beta_r entrambi negativi, il gate r
+#    ha una dipendenza dal voltaggio molto debole: e' quanto scritto nel
+#    paper, ma conviene ricontrollarlo sul PDF originale.
+#
+# NOTE NUMERICHE
+# ++++++++++++++
+#  - Il gate p ha alpha_p = 0.00713*exp(-0.1942*V): a V molto negativo la
+#    costante di velocita' diventa enorme (stiff). Il solutore numerico
+#    (GSL, passo adattivo) lo gestisce, ma se la simulazione e' lenta o
+#    instabile si puo' ridurre il passo di integrazione (resolution).
+#  - Per riprodurre la validazione della REF1: stimolare con impulsi di
+#    corrente da 1.4 nA, 0.25 ms (tramite I_stim) a 100-600 Hz.
+#    Con g_Kv3 = 150 nS (controllo) i fallimenti compaiono a ~350 Hz;
+#    con g_Kv3 = 100 nS (PMA) gli spike sono riportati a 1 a 1 a 350-360 Hz.
+#
+# RIFERIMENTI
+# +++++++++++
+# .. [1] Macica CM, von Hehn CAA, Wang LY, Ho CS, Yokoyama S, Joho RH,
+#        Kaczmarek LK (2003). J Neurosci 23(4):1133-1141.
+# .. [2] Hodgkin AL, Huxley AF (1952). J Physiol 117.
+#        DOI: https://doi.org/10.1113/jphysiol.1952.sp004764
+#
+# Modello derivato da hh_psc_alpha di NEST (GPL v2 o successiva).
+#
+model mntb_hh_kv3_neuron:
+    state:
+        V_m mV = V_m_init          # Potenziale di membrana
+        V_m_old mV = V_m_init      # Potenziale al passo precedente (per rilevare il massimo dello spike)
+        refr_t ms = 0 ms           # Timer del periodo refrattario (solo per il rilevamento dello spike)
+
+        # Variabili di gating, inizializzate al loro valore stazionario a V_m_init
+        Act_m real   = alpha_m_init / ( alpha_m_init + beta_m_init )   # Na: attivazione m
+        Inact_h real = alpha_h_init / ( alpha_h_init + beta_h_init )   # Na: inattivazione h
+        Act_l real   = alpha_l_init / ( alpha_l_init + beta_l_init )   # LT: attivazione l
+        Inact_r real = alpha_r_init / ( alpha_r_init + beta_r_init )   # LT: inattivazione r
+        Act_n real   = alpha_n_init / ( alpha_n_init + beta_n_init )   # Kv3: attivazione n
+        Inact_p real = alpha_p_init / ( alpha_p_init + beta_p_init )   # Kv3: inattivazione parziale p
+
+    equations:
+        # ---------------------------------------------------------------
+        # Sinapsi: funzioni alpha (invariate rispetto al modello originale).
+        # NON sono nella REF1 (li' lo stimolo e' solo corrente iniettata);
+        # le tengo per poter pilotare il neurone con spike in ingresso.
+        # ---------------------------------------------------------------
+        kernel K_syn_inh = (e/tau_syn_inh) * t * exp(-t/tau_syn_inh)
+        kernel K_syn_exc = (e/tau_syn_exc) * t * exp(-t/tau_syn_exc)
+
+        inline I_syn_exc pA = convolve(K_syn_exc, exc_spikes) * pA
+        inline I_syn_inh pA = convolve(K_syn_inh, inh_spikes) * pA
+
+        # ---------------------------------------------------------------
+        # Correnti ioniche (REF1: I_Na = gNa m^3 h (50 - V), ecc.)
+        # Convenzione NESTML: g * (V - E_rev)
+        # ---------------------------------------------------------------
+        # Sodio: m^3 h
+        inline I_Na  pA = g_Na * Act_m**3 * Inact_h * ( E_Na - V_m )  # il simbolo ** indica l'elevamento a potenza
+
+        # Potassio a bassa soglia (LT): l * r
+        inline I_LT  pA = g_LT * Act_l * Inact_r * ( E_K - V_m )
+
+        # Potassio Kv3 (alta soglia): n^3 * (0.8 + 0.2 p) # in questo modo ho al massimo il 20% di inattivazione
+        
+        # Il termine (0.8 + 0.2 p) e' una piccola inattivazione parziale:
+        # spiega il picco transitorio che decade leggermente nei tracciati
+        # di corrente a potenziali positivi.
+        inline I_Kv3 pA = g_Kv3 * Act_n**3 * ( 0.8 + 0.2 * Inact_p ) * ( E_K - V_m )
+
+        # Leak
+        inline I_L   pA = g_L * ( E_L - V_m ) # il segno e' diverso perche' abbiamo l'implementazione al contrario rispetto alle reference
+
+        # ---------------------------------------------------------------
+        # Costanti di velocita' dei gate: alpha = k_a*exp(eta_a*V),
+        # beta = k_b*exp(eta_b*V). V_m e' in mV e eta in 1/mV, quindi
+        # l'argomento dell'esponenziale e' adimensionale.
+        # ---------------------------------------------------------------
+        # m (sodio, attivazione)
+        inline alpha_m 1/ms = k_alpha_m * exp( eta_alpha_m * V_m )
+        inline beta_m  1/ms = k_beta_m  * exp( eta_beta_m  * V_m )
+        Act_m' = alpha_m * ( 1 - Act_m ) - beta_m * Act_m
+
+        # h (sodio, inattivazione)
+        inline alpha_h 1/ms = k_alpha_h * exp( eta_alpha_h * V_m )
+        inline beta_h  1/ms = k_beta_h  * exp( eta_beta_h  * V_m )
+        Inact_h' = alpha_h * ( 1 - Inact_h ) - beta_h * Inact_h
+
+        # l (potassio LT, attivazione)
+        inline alpha_l 1/ms = k_alpha_l * exp( eta_alpha_l * V_m )
+        inline beta_l  1/ms = k_beta_l  * exp( eta_beta_l  * V_m )
+        Act_l' = alpha_l * ( 1 - Act_l ) - beta_l * Act_l
+
+        # r (potassio LT, inattivazione)
+        inline alpha_r 1/ms = k_alpha_r * exp( eta_alpha_r * V_m )
+        inline beta_r  1/ms = k_beta_r  * exp( eta_beta_r  * V_m )
+        Inact_r' = alpha_r * ( 1 - Inact_r ) - beta_r * Inact_r
+
+        # n (Kv3, attivazione). eta_beta_n = 0: beta_n e' costante.
+        inline alpha_n 1/ms = k_alpha_n * exp( eta_alpha_n * V_m )
+        inline beta_n  1/ms = k_beta_n  * exp( eta_beta_n  * V_m )
+        Act_n' = alpha_n * ( 1 - Act_n ) - beta_n * Act_n
+
+        # p (Kv3, inattivazione parziale)
+        inline alpha_p 1/ms = k_alpha_p * exp( eta_alpha_p * V_m )
+        inline beta_p  1/ms = k_beta_p  * exp( eta_beta_p  * V_m )
+        Inact_p' = alpha_p * ( 1 - Inact_p ) - beta_p * Inact_p
+
+        # ---------------------------------------------------------------
+        # Equazione di membrana (REF1: C dV/dt = -I_Na - I_Kv3.1 - I_LT - I_L + I_ext)
+        # ---------------------------------------------------------------
+        V_m' = ( ( I_Na + I_LT + I_Kv3 + I_L ) + I_e + I_stim + I_syn_exc - I_syn_inh ) / C_m
+
+        # Il refrattario e' un timer che scende a zero (come nel modello originale)
+        refr_t' = -1e3 * ms/s    # XXX: TODO: dovrebbe essere ``refr_t' = -1 / s`` (https://github.com/nest/nestml/issues/984)
+
+    parameters:
+        # ----------------------- Membrana (REF1) -----------------------
+        V_m_init mV = -64 mV       # Potenziale iniziale (potenziale di riposo misurato in REF1: ~ -64 mV)
+        C_m pF = 10 pF             # Capacita' (REF1: 0.01 nF)
+
+        # ----------------------- Conduttanze massime (REF1) ------------
+        g_Na nS  = 500 nS          # Sodio: 0.5 uS
+        g_LT nS  = 20 nS           # Potassio bassa soglia: 0.02 uS
+        g_Kv3 nS = 150 nS          # Kv3 (controllo): 0.15 uS. Con PMA: 100 nS.
+                                   # Nello step 2 diventera' g_Kv3_1 + g_Kv3_3
+        g_L nS   = 2 nS            # Leak: 0.002 uS
+
+        # ----------------------- Potenziali di inversione --------------
+        E_Na mV = 50 mV            # Sodio (REF1)
+        E_K mV  = -80 mV           # Potassio (REF1), comune a I_LT e I_Kv3
+        E_L mV  = -63 mV           # Leak (REF1)
+
+        # ----------------------- Sodio: m -------------------------------
+        k_alpha_m 1/ms   = 76.4 /ms
+        eta_alpha_m 1/mV = 0.037 /mV
+        k_beta_m 1/ms    = 6.93 /ms
+        eta_beta_m 1/mV  = -0.043 /mV
+
+        # ----------------------- Sodio: h -------------------------------
+        k_alpha_h 1/ms   = 0.000533 /ms
+        eta_alpha_h 1/mV = -0.0909 /mV
+        k_beta_h 1/ms    = 7.87 /ms
+        eta_beta_h 1/mV  = 0.0691 /mV
+
+        # ----------------------- Potassio LT: l -------------------------
+        k_alpha_l 1/ms   = 1.2 /ms
+        eta_alpha_l 1/mV = 0.03512 /mV
+        k_beta_l 1/ms    = 0.2248 /ms
+        eta_beta_l 1/mV  = -0.0319 /mV
+
+        # ----------------------- Potassio LT: r -------------------------
+        k_alpha_r 1/ms   = 0.0438 /ms
+        eta_alpha_r 1/mV = -0.0053 /mV
+        k_beta_r 1/ms    = 0.0562 /ms
+        eta_beta_r 1/mV  = -0.0047 /mV     # segno come da REF1 (vedi note in testa)
+
+        # ----------------------- Kv3: n ---------------------------------
+        k_alpha_n 1/ms   = 0.2719 /ms
+        eta_alpha_n 1/mV = 0.04 /mV
+        k_beta_n 1/ms    = 0.1974 /ms
+        eta_beta_n 1/mV  = 0 /mV
+
+        # ----------------------- Kv3: p ---------------------------------
+        k_alpha_p 1/ms   = 0.00713 /ms
+        eta_alpha_p 1/mV = -0.1942 /mV
+        k_beta_p 1/ms    = 0.0935 /ms
+        eta_beta_p 1/mV  = 0.0058 /mV
+
+        # ----------------------- Rilevamento spike ----------------------
+        # Non e' in REF1: serve solo a non emettere piu' spike durante la
+        # ripolarizzazione dello stesso potenziale d'azione. 1 ms e' abbastanza
+        # corto da non perdere spike a 600 Hz (periodo 1.67 ms).
+        refr_T ms = 1 ms
+
+        # ----------------------- Sinapsi (non in REF1) ------------------
+        tau_syn_exc ms = 0.2 ms
+        tau_syn_inh ms = 2 ms
+
+        # Corrente costante esterna
+        I_e pA = 0 pA
+
+    internals: # calcola le condizioni iniziali dei gate, cioe' dove partono m, h, l, r, n e p all'inizio della simulazione
+        # Valori delle costanti di velocita' al potenziale iniziale,
+        # usati per inizializzare i gate al loro valore stazionario x_inf = alpha/(alpha+beta)
+        alpha_m_init 1/ms = k_alpha_m * exp( eta_alpha_m * V_m_init )
+        beta_m_init  1/ms = k_beta_m  * exp( eta_beta_m  * V_m_init )
+        alpha_h_init 1/ms = k_alpha_h * exp( eta_alpha_h * V_m_init )
+        beta_h_init  1/ms = k_beta_h  * exp( eta_beta_h  * V_m_init )
+        alpha_l_init 1/ms = k_alpha_l * exp( eta_alpha_l * V_m_init )
+        beta_l_init  1/ms = k_beta_l  * exp( eta_beta_l  * V_m_init )
+        alpha_r_init 1/ms = k_alpha_r * exp( eta_alpha_r * V_m_init )
+        beta_r_init  1/ms = k_beta_r  * exp( eta_beta_r  * V_m_init )
+        alpha_n_init 1/ms = k_alpha_n * exp( eta_alpha_n * V_m_init )
+        beta_n_init  1/ms = k_beta_n  * exp( eta_beta_n  * V_m_init )
+        alpha_p_init 1/ms = k_alpha_p * exp( eta_alpha_p * V_m_init )
+        beta_p_init  1/ms = k_beta_p  * exp( eta_beta_p  * V_m_init )
+
+    input:
+        exc_spikes <- excitatory spike
+        inh_spikes <- inhibitory spike
+        I_stim pA <- continuous
+
+    output:
+        spike
+
+    update:
+        # Modello di tipo HH: le ODE sono sempre integrate, anche durante il refrattario
+        V_m_old = V_m
+        if refr_t > 0 ms:
+            integrate_odes(V_m, Inact_h, Act_m, Act_n, Inact_p, Act_l, Inact_r, refr_t)
+        else:
+            integrate_odes(V_m, Inact_h, Act_m, Act_n, Inact_p, Act_l, Inact_r)
+
+    onCondition(refr_t <= 0 ms and V_m > 0 mV and V_m_old > V_m):
+        # Soglia a 0 mV + massimo locale (il picco in REF1 e' ~ +29 mV)
+        refr_t = refr_T
+        emit_spike()
