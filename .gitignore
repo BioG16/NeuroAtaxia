@@ -1,0 +1,10 @@
+# File generati da NESTML/NEST durante la compilazione
+target/
+report/
+
+# Impostazioni personali di VS Code
+.vscode/
+
+# File temporanei di Python e Jupyter
+__pycache__/
+.ipynb_checkpoints/
