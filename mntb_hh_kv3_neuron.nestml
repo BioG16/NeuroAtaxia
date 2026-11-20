@@ -115,34 +115,34 @@ model mntb_hh_kv3_neuron:
         # l'argomento dell'esponenziale e' adimensionale.
         # ---------------------------------------------------------------
         # m (sodio, attivazione)
-        inline alpha_m 1/ms = k_alpha_m * exp( eta_alpha_m * V_m )
-        inline beta_m  1/ms = k_beta_m  * exp( eta_beta_m  * V_m )
-        Act_m' = alpha_m * ( 1 - Act_m ) - beta_m * Act_m
+        inline alpha_m real = k_alpha_m * exp( eta_alpha_m * V_m / mV )
+        inline beta_m  real = k_beta_m  * exp( eta_beta_m  * V_m / mV )
+        Act_m' = ( alpha_m * ( 1 - Act_m ) - beta_m * Act_m ) / ms
 
         # h (sodio, inattivazione)
-        inline alpha_h 1/ms = k_alpha_h * exp( eta_alpha_h * V_m )
-        inline beta_h  1/ms = k_beta_h  * exp( eta_beta_h  * V_m )
-        Inact_h' = alpha_h * ( 1 - Inact_h ) - beta_h * Inact_h
+        inline alpha_h real = k_alpha_h * exp( eta_alpha_h * V_m / mV )
+        inline beta_h  real = k_beta_h  * exp( eta_beta_h  * V_m / mV )
+        Inact_h' = ( alpha_h * ( 1 - Inact_h ) - beta_h * Inact_h ) / ms
 
         # l (potassio LT, attivazione)
-        inline alpha_l 1/ms = k_alpha_l * exp( eta_alpha_l * V_m )
-        inline beta_l  1/ms = k_beta_l  * exp( eta_beta_l  * V_m )
-        Act_l' = alpha_l * ( 1 - Act_l ) - beta_l * Act_l
+        inline alpha_l real = k_alpha_l * exp( eta_alpha_l * V_m / mV )
+        inline beta_l  real = k_beta_l  * exp( eta_beta_l  * V_m / mV )
+        Act_l' = ( alpha_l * ( 1 - Act_l ) - beta_l * Act_l ) / ms
 
         # r (potassio LT, inattivazione)
-        inline alpha_r 1/ms = k_alpha_r * exp( eta_alpha_r * V_m )
-        inline beta_r  1/ms = k_beta_r  * exp( eta_beta_r  * V_m )
-        Inact_r' = alpha_r * ( 1 - Inact_r ) - beta_r * Inact_r
+        inline alpha_r real = k_alpha_r * exp( eta_alpha_r * V_m / mV )
+        inline beta_r  real = k_beta_r  * exp( eta_beta_r  * V_m / mV )
+        Inact_r' = ( alpha_r * ( 1 - Inact_r ) - beta_r * Inact_r ) / ms
 
         # n (Kv3, attivazione). eta_beta_n = 0: beta_n e' costante.
-        inline alpha_n 1/ms = k_alpha_n * exp( eta_alpha_n * V_m )
-        inline beta_n  1/ms = k_beta_n  * exp( eta_beta_n  * V_m )
-        Act_n' = alpha_n * ( 1 - Act_n ) - beta_n * Act_n
+        inline alpha_n real = k_alpha_n * exp( eta_alpha_n * V_m / mV )
+        inline beta_n  real = k_beta_n  * exp( eta_beta_n  * V_m / mV )
+        Act_n' = ( alpha_n * ( 1 - Act_n ) - beta_n * Act_n ) / ms
 
         # p (Kv3, inattivazione parziale)
-        inline alpha_p 1/ms = k_alpha_p * exp( eta_alpha_p * V_m )
-        inline beta_p  1/ms = k_beta_p  * exp( eta_beta_p  * V_m )
-        Inact_p' = alpha_p * ( 1 - Inact_p ) - beta_p * Inact_p
+        inline alpha_p real = k_alpha_p * exp( eta_alpha_p * V_m / mV )
+        inline beta_p  real = k_beta_p  * exp( eta_beta_p  * V_m / mV )
+        Inact_p' = ( alpha_p * ( 1 - Inact_p ) - beta_p * Inact_p ) / ms
 
         # ---------------------------------------------------------------
         # Equazione di membrana (REF1: C dV/dt = -I_Na - I_Kv3.1 - I_LT - I_L + I_ext)
@@ -170,40 +170,40 @@ model mntb_hh_kv3_neuron:
         E_L mV  = -63 mV           # Leak (REF1)
 
         # ----------------------- Sodio: m -------------------------------
-        k_alpha_m 1/ms   = 76.4 /ms
-        eta_alpha_m 1/mV = 0.037 /mV
-        k_beta_m 1/ms    = 6.93 /ms
-        eta_beta_m 1/mV  = -0.043 /mV
+        k_alpha_m real = 76.4
+        eta_alpha_m real = 0.037
+        k_beta_m real = 6.93
+        eta_beta_m real = -0.043
 
         # ----------------------- Sodio: h -------------------------------
-        k_alpha_h 1/ms   = 0.000533 /ms
-        eta_alpha_h 1/mV = -0.0909 /mV
-        k_beta_h 1/ms    = 7.87 /ms
-        eta_beta_h 1/mV  = 0.0691 /mV
+        k_alpha_h real = 0.000533
+        eta_alpha_h real = -0.0909
+        k_beta_h real = 7.87
+        eta_beta_h real = 0.0691
 
         # ----------------------- Potassio LT: l -------------------------
-        k_alpha_l 1/ms   = 1.2 /ms
-        eta_alpha_l 1/mV = 0.03512 /mV
-        k_beta_l 1/ms    = 0.2248 /ms
-        eta_beta_l 1/mV  = -0.0319 /mV
+        k_alpha_l real = 1.2
+        eta_alpha_l real = 0.03512
+        k_beta_l real = 0.2248
+        eta_beta_l real = -0.0319
 
         # ----------------------- Potassio LT: r -------------------------
-        k_alpha_r 1/ms   = 0.0438 /ms
-        eta_alpha_r 1/mV = -0.0053 /mV
-        k_beta_r 1/ms    = 0.0562 /ms
-        eta_beta_r 1/mV  = -0.0047 /mV     # segno come da REF1 (vedi note in testa)
+        k_alpha_r real = 0.0438
+        eta_alpha_r real = -0.0053
+        k_beta_r real = 0.0562
+        eta_beta_r real = -0.0047     # segno come da REF1 (vedi note in testa)
 
         # ----------------------- Kv3: n ---------------------------------
-        k_alpha_n 1/ms   = 0.2719 /ms
-        eta_alpha_n 1/mV = 0.04 /mV
-        k_beta_n 1/ms    = 0.1974 /ms
-        eta_beta_n 1/mV  = 0 /mV
+        k_alpha_n real = 0.2719
+        eta_alpha_n real = 0.04
+        k_beta_n real = 0.1974
+        eta_beta_n real = 0
 
         # ----------------------- Kv3: p ---------------------------------
-        k_alpha_p 1/ms   = 0.00713 /ms
-        eta_alpha_p 1/mV = -0.1942 /mV
-        k_beta_p 1/ms    = 0.0935 /ms
-        eta_beta_p 1/mV  = 0.0058 /mV
+        k_alpha_p real = 0.00713
+        eta_alpha_p real = -0.1942
+        k_beta_p real = 0.0935
+        eta_beta_p real = 0.0058
 
         # ----------------------- Rilevamento spike ----------------------
         # Non e' in REF1: serve solo a non emettere piu' spike durante la
@@ -221,18 +221,18 @@ model mntb_hh_kv3_neuron:
     internals: # calcola le condizioni iniziali dei gate, cioe' dove partono m, h, l, r, n e p all'inizio della simulazione
         # Valori delle costanti di velocita' al potenziale iniziale,
         # usati per inizializzare i gate al loro valore stazionario x_inf = alpha/(alpha+beta)
-        alpha_m_init 1/ms = k_alpha_m * exp( eta_alpha_m * V_m_init )
-        beta_m_init  1/ms = k_beta_m  * exp( eta_beta_m  * V_m_init )
-        alpha_h_init 1/ms = k_alpha_h * exp( eta_alpha_h * V_m_init )
-        beta_h_init  1/ms = k_beta_h  * exp( eta_beta_h  * V_m_init )
-        alpha_l_init 1/ms = k_alpha_l * exp( eta_alpha_l * V_m_init )
-        beta_l_init  1/ms = k_beta_l  * exp( eta_beta_l  * V_m_init )
-        alpha_r_init 1/ms = k_alpha_r * exp( eta_alpha_r * V_m_init )
-        beta_r_init  1/ms = k_beta_r  * exp( eta_beta_r  * V_m_init )
-        alpha_n_init 1/ms = k_alpha_n * exp( eta_alpha_n * V_m_init )
-        beta_n_init  1/ms = k_beta_n  * exp( eta_beta_n  * V_m_init )
-        alpha_p_init 1/ms = k_alpha_p * exp( eta_alpha_p * V_m_init )
-        beta_p_init  1/ms = k_beta_p  * exp( eta_beta_p  * V_m_init )
+        alpha_m_init real = k_alpha_m * exp( eta_alpha_m * V_m_init / mV )
+        beta_m_init  real = k_beta_m  * exp( eta_beta_m  * V_m_init / mV )
+        alpha_h_init real = k_alpha_h * exp( eta_alpha_h * V_m_init / mV )
+        beta_h_init  real = k_beta_h  * exp( eta_beta_h  * V_m_init / mV )
+        alpha_l_init real = k_alpha_l * exp( eta_alpha_l * V_m_init / mV )
+        beta_l_init  real = k_beta_l  * exp( eta_beta_l  * V_m_init / mV )
+        alpha_r_init real = k_alpha_r * exp( eta_alpha_r * V_m_init / mV )
+        beta_r_init  real = k_beta_r  * exp( eta_beta_r  * V_m_init / mV )
+        alpha_n_init real = k_alpha_n * exp( eta_alpha_n * V_m_init / mV )
+        beta_n_init  real = k_beta_n  * exp( eta_beta_n  * V_m_init / mV )
+        alpha_p_init real = k_alpha_p * exp( eta_alpha_p * V_m_init / mV )
+        beta_p_init  real = k_beta_p  * exp( eta_beta_p  * V_m_init / mV )
 
     input:
         exc_spikes <- excitatory spike
@@ -254,3 +254,8 @@ model mntb_hh_kv3_neuron:
         # Soglia a 0 mV + massimo locale (il picco in REF1 e' ~ +29 mV)
         refr_t = refr_T
         emit_spike()
+
+
+
+
+
