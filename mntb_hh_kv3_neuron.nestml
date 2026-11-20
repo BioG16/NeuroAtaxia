@@ -67,7 +67,7 @@ model mntb_hh_kv3_neuron:
     state:
         V_m mV = V_m_init          # Potenziale di membrana
         V_m_old mV = V_m_init      # Potenziale al passo precedente (per rilevare il massimo dello spike)
-        refr_t ms = 0 ms           # Timer del periodo refrattario (solo per il rilevamento dello spike)
+        refr_t ms = 0.0 ms         # Timer del periodo refrattario (solo per il rilevamento dello spike)
 
         # Variabili di gating, inizializzate al loro valore stazionario a V_m_init
         Act_m real   = alpha_m_init / ( alpha_m_init + beta_m_init )   # Na: attivazione m
@@ -254,6 +254,7 @@ model mntb_hh_kv3_neuron:
         # Soglia a 0 mV + massimo locale (il picco in REF1 e' ~ +29 mV)
         refr_t = refr_T
         emit_spike()
+
 
 
 
