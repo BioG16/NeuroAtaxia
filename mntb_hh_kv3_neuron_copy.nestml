@@ -63,7 +63,7 @@
 #
 # Modello derivato da hh_psc_alpha di NEST (GPL v2 o successiva).
 #
-model mntb_hh_kv3_neuron:
+model mntb_hh_kv3_neuron_wang:
     state:
         V_m mV = V_m_init          # Potenziale di membrana
         V_m_old mV = V_m_init      # Potenziale al passo precedente (per rilevare il massimo dello spike)
