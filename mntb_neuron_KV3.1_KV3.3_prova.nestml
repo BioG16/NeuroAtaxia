@@ -1,0 +1,240 @@
+# mntb_neuron_KV3_1_KV3_3_prova - Step 2: Kv3 diviso in Kv3.1 e Kv3.3 (PROVA, 27 nov 2026)
+# ######################################################################################
+#
+# DA DOVE PARTE
+# +++++++++++++
+# E' una copia di mntb_hh_kv3_neuron_prova.nestml (stessi parametri: h del sodio di Wang 1998,
+# g_L = 4 nS, g_LT = 30 nS) in cui l'unica corrente Kv3 e' stata divisa in due correnti:
+#
+#     I_Kv3   = g_Kv3 * n^3 * (0.8 + 0.2 p) * (E_K - V)                    (modello _prova)
+#
+#     I_Kv3_1 = g_Kv3_1 * n1^3 * (0.8 + 0.2 p1) * (E_K - V)                (subunita' Kv3.1)
+#     I_Kv3_3 = g_Kv3_3 * n3^3 * (0.8 + 0.2 p3) * (E_K - V)                (subunita' Kv3.3)
+#
+# SCELTE DI QUESTA PRIMA PROVA
+# ++++++++++++++++++++++++++++
+#  1. Divisione 50/50: g_Kv3_1 = g_Kv3_3 = 75 nS, quindi g_Kv3_1 + g_Kv3_3 = 150 nS come in _prova.
+#     Con questi valori il modello WT e' IDENTICO a _prova.
+#  2. Cinetiche: per ora le due correnti hanno gli stessi parametri dei gate n e p di Macica 2003
+#     (Choudhury 2020 non misura cinetiche separate per Kv3.1 e Kv3.3 nell'MNTB).
+#     Pero' ogni corrente ha i SUOI gate (n1, p1 e n3, p3) e i SUOI parametri:
+#     in seguito si possono cambiare in modo indipendente.
+#  3. Stesso E_K (-80 mV) per tutte le correnti di potassio (E_K dipende dalla cellula, non dal canale).
+#
+# COME SI SIMULANO I GENOTIPI (dal notebook, senza toccare questo file)
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#     WT                 : valori di default
+#     Kv3.1 KO           : g_Kv3_1 = 0
+#     Kv3.3 KO           : g_Kv3_3 = 0
+#     TEA 1 mM           : g_Kv3_1 = g_Kv3_3 = 0   (blocca i canali Kv3)
+#     R420H (SCA13, REF4): Kv3.3 non conduce -> per ora come Kv3.3 KO (g_Kv3_3 = 0)
+#
+# Le correnti sono "recordable": il multimetro di NEST le puo' registrare direttamente
+# (I_Na, I_LT, I_Kv3_1, I_Kv3_3, I_L).
+#
+# RIFERIMENTI
+# +++++++++++
+# .. [1] Macica CM et al. (2003). J Neurosci 23(4):1133-1141.          (equazioni e parametri)
+# .. [2] Wang LY et al. (1998). J Physiol 509(1):183-194.              (gate h del sodio)
+# .. [3] Choudhury N et al. (2020). J Physiol 598(11):2199-2222.       (Kv3.1 / Kv3.3 nell'MNTB)
+#
+# Modello derivato da hh_psc_alpha di NEST (GPL v2 o successiva).
+#
+model mntb_neuron_KV3_1_KV3_3_prova:
+    state:
+        V_m mV = V_m_init          # Potenziale di membrana
+        V_m_old mV = V_m_init      # Potenziale al passo precedente (per rilevare il massimo dello spike)
+        refr_t ms = 0.0 ms         # Timer del periodo refrattario (solo per il rilevamento dello spike)
+
+        # Variabili di gating, inizializzate al loro valore stazionario a V_m_init
+        Act_m real    = alpha_m_init / ( alpha_m_init + beta_m_init )      # Na: attivazione m
+        Inact_h real  = alpha_h_init / ( alpha_h_init + beta_h_init )      # Na: inattivazione h
+        Act_l real    = alpha_l_init / ( alpha_l_init + beta_l_init )      # LT: attivazione l
+        Inact_r real  = alpha_r_init / ( alpha_r_init + beta_r_init )      # LT: inattivazione r
+        Act_n1 real   = alpha_n1_init / ( alpha_n1_init + beta_n1_init )   # Kv3.1: attivazione n1
+        Inact_p1 real = alpha_p1_init / ( alpha_p1_init + beta_p1_init )   # Kv3.1: inattivazione parziale p1
+        Act_n3 real   = alpha_n3_init / ( alpha_n3_init + beta_n3_init )   # Kv3.3: attivazione n3
+        Inact_p3 real = alpha_p3_init / ( alpha_p3_init + beta_p3_init )   # Kv3.3: inattivazione parziale p3
+
+    equations:
+        # ---------------------------------------------------------------
+        # Sinapsi: funzioni alpha (come nel modello _prova, non usate negli esperimenti)
+        # ---------------------------------------------------------------
+        kernel K_syn_inh = (e/tau_syn_inh) * t * exp(-t/tau_syn_inh)
+        kernel K_syn_exc = (e/tau_syn_exc) * t * exp(-t/tau_syn_exc)
+
+        inline I_syn_exc pA = convolve(K_syn_exc, exc_spikes) * pA
+        inline I_syn_inh pA = convolve(K_syn_inh, inh_spikes) * pA
+
+        # ---------------------------------------------------------------
+        # Correnti ioniche: g * (E - V), positive = entranti (depolarizzanti)
+        # "recordable" = il multimetro le puo' registrare
+        # ---------------------------------------------------------------
+        recordable inline I_Na pA    = g_Na * Act_m**3 * Inact_h * ( E_Na - V_m )
+        recordable inline I_LT pA    = g_LT * Act_l * Inact_r * ( E_K - V_m )
+        recordable inline I_Kv3_1 pA = g_Kv3_1 * Act_n1**3 * ( 0.8 + 0.2 * Inact_p1 ) * ( E_K - V_m )
+        recordable inline I_Kv3_3 pA = g_Kv3_3 * Act_n3**3 * ( 0.8 + 0.2 * Inact_p3 ) * ( E_K - V_m )
+        recordable inline I_L pA     = g_L * ( E_L - V_m )
+
+        # ---------------------------------------------------------------
+        # Gate: alpha = k_a*exp(eta_a*V), beta = k_b*exp(eta_b*V)
+        # ---------------------------------------------------------------
+        # m (sodio, attivazione)
+        inline alpha_m 1/ms = k_alpha_m * exp( eta_alpha_m * V_m )
+        inline beta_m  1/ms = k_beta_m  * exp( eta_beta_m  * V_m )
+        Act_m' = alpha_m * ( 1 - Act_m ) - beta_m * Act_m
+
+        # h (sodio, inattivazione)
+        inline alpha_h 1/ms = k_alpha_h * exp( eta_alpha_h * V_m )
+        inline beta_h  1/ms = k_beta_h  * exp( eta_beta_h  * V_m )
+        Inact_h' = alpha_h * ( 1 - Inact_h ) - beta_h * Inact_h
+
+        # l (potassio LT, attivazione)
+        inline alpha_l 1/ms = k_alpha_l * exp( eta_alpha_l * V_m )
+        inline beta_l  1/ms = k_beta_l  * exp( eta_beta_l  * V_m )
+        Act_l' = alpha_l * ( 1 - Act_l ) - beta_l * Act_l
+
+        # r (potassio LT, inattivazione)
+        inline alpha_r 1/ms = k_alpha_r * exp( eta_alpha_r * V_m )
+        inline beta_r  1/ms = k_beta_r  * exp( eta_beta_r  * V_m )
+        Inact_r' = alpha_r * ( 1 - Inact_r ) - beta_r * Inact_r
+
+        # n1 (Kv3.1, attivazione)
+        inline alpha_n1 1/ms = k_alpha_n1 * exp( eta_alpha_n1 * V_m )
+        inline beta_n1  1/ms = k_beta_n1  * exp( eta_beta_n1  * V_m )
+        Act_n1' = alpha_n1 * ( 1 - Act_n1 ) - beta_n1 * Act_n1
+
+        # p1 (Kv3.1, inattivazione parziale)
+        inline alpha_p1 1/ms = k_alpha_p1 * exp( eta_alpha_p1 * V_m )
+        inline beta_p1  1/ms = k_beta_p1  * exp( eta_beta_p1  * V_m )
+        Inact_p1' = alpha_p1 * ( 1 - Inact_p1 ) - beta_p1 * Inact_p1
+
+        # n3 (Kv3.3, attivazione)
+        inline alpha_n3 1/ms = k_alpha_n3 * exp( eta_alpha_n3 * V_m )
+        inline beta_n3  1/ms = k_beta_n3  * exp( eta_beta_n3  * V_m )
+        Act_n3' = alpha_n3 * ( 1 - Act_n3 ) - beta_n3 * Act_n3
+
+        # p3 (Kv3.3, inattivazione parziale)
+        inline alpha_p3 1/ms = k_alpha_p3 * exp( eta_alpha_p3 * V_m )
+        inline beta_p3  1/ms = k_beta_p3  * exp( eta_beta_p3  * V_m )
+        Inact_p3' = alpha_p3 * ( 1 - Inact_p3 ) - beta_p3 * Inact_p3
+
+        # ---------------------------------------------------------------
+        # Equazione di membrana
+        # ---------------------------------------------------------------
+        V_m' = ( ( I_Na + I_LT + I_Kv3_1 + I_Kv3_3 + I_L ) + I_e + I_stim + I_syn_exc - I_syn_inh ) / C_m
+
+        refr_t' = -1e3 * ms/s    # timer del refrattario (vedi https://github.com/nest/nestml/issues/984)
+
+    parameters:
+        # ----------------------- Membrana ------------------------------
+        V_m_init mV = -64 mV       # Potenziale iniziale (riposo ~ -64 mV, REF1)
+        C_m pF = 10 pF             # Capacita' (REF1)
+
+        # ----------------------- Conduttanze massime -------------------
+        g_Na nS    = 500 nS        # Sodio (REF1)
+        g_LT nS    = 30 nS         # Potassio bassa soglia: 20 nS in Macica -> 30 nS (come _prova)
+        g_Kv3_1 nS = 75 nS         # Kv3.1: 50% dei 150 nS di Kv3 di Macica (PROVA 50/50)
+        g_Kv3_3 nS = 75 nS         # Kv3.3: 50% dei 150 nS di Kv3 di Macica (PROVA 50/50)
+        g_L nS     = 4 nS          # Leak: 2 nS in Macica -> 4 nS (come _prova)
+
+        # ----------------------- Potenziali di inversione --------------
+        E_Na mV = 50 mV            # Sodio (REF1)
+        E_K mV  = -80 mV           # Potassio (REF1), comune a I_LT, I_Kv3_1 e I_Kv3_3
+        E_L mV  = -63 mV           # Leak (REF1)
+
+        # ----------------------- Sodio: m (REF1) -----------------------
+        k_alpha_m 1/ms   = 76.4 /ms
+        eta_alpha_m 1/mV = 0.037 /mV
+        k_beta_m 1/ms    = 6.93 /ms
+        eta_beta_m 1/mV  = -0.043 /mV
+
+        # ----------------------- Sodio: h (Wang 1998, come _prova) -----
+        k_alpha_h 1/ms   = 0.00013 /ms     # Macica: 0.000533
+        eta_alpha_h 1/mV = -0.1216 /mV     # Macica: -0.0909
+        k_beta_h 1/ms    = 1.999 /ms       # Macica: 7.87
+        eta_beta_h 1/mV  = 0.0384 /mV      # Macica: 0.0691
+
+        # ----------------------- Potassio LT: l (REF1) -----------------
+        k_alpha_l 1/ms   = 1.2 /ms
+        eta_alpha_l 1/mV = 0.03512 /mV
+        k_beta_l 1/ms    = 0.2248 /ms
+        eta_beta_l 1/mV  = -0.0319 /mV
+
+        # ----------------------- Potassio LT: r (REF1) -----------------
+        k_alpha_r 1/ms   = 0.0438 /ms
+        eta_alpha_r 1/mV = -0.0053 /mV
+        k_beta_r 1/ms    = 0.0562 /ms
+        eta_beta_r 1/mV  = -0.0047 /mV
+
+        # ----------------------- Kv3.1: n1 (= n di REF1) ---------------
+        k_alpha_n1 1/ms   = 0.2719 /ms
+        eta_alpha_n1 1/mV = 0.04 /mV
+        k_beta_n1 1/ms    = 0.1974 /ms
+        eta_beta_n1 1/mV  = 0 /mV
+
+        # ----------------------- Kv3.1: p1 (= p di REF1) ---------------
+        k_alpha_p1 1/ms   = 0.00713 /ms
+        eta_alpha_p1 1/mV = -0.1942 /mV
+        k_beta_p1 1/ms    = 0.0935 /ms
+        eta_beta_p1 1/mV  = 0.0058 /mV
+
+        # ----------------------- Kv3.3: n3 (per ora = n di REF1) -------
+        k_alpha_n3 1/ms   = 0.2719 /ms
+        eta_alpha_n3 1/mV = 0.04 /mV
+        k_beta_n3 1/ms    = 0.1974 /ms
+        eta_beta_n3 1/mV  = 0 /mV
+
+        # ----------------------- Kv3.3: p3 (per ora = p di REF1) -------
+        k_alpha_p3 1/ms   = 0.00713 /ms
+        eta_alpha_p3 1/mV = -0.1942 /mV
+        k_beta_p3 1/ms    = 0.0935 /ms
+        eta_beta_p3 1/mV  = 0.0058 /mV
+
+        # ----------------------- Rilevamento spike ----------------------
+        refr_T ms = 1 ms
+
+        # ----------------------- Sinapsi (non in REF1) ------------------
+        tau_syn_exc ms = 0.2 ms
+        tau_syn_inh ms = 2 ms
+
+        # Corrente costante esterna
+        I_e pA = 0 pA
+
+    internals: # valori iniziali dei gate: x_inf = alpha/(alpha+beta) a V_m_init
+        alpha_m_init 1/ms  = k_alpha_m  * exp( eta_alpha_m  * V_m_init )
+        beta_m_init  1/ms  = k_beta_m   * exp( eta_beta_m   * V_m_init )
+        alpha_h_init 1/ms  = k_alpha_h  * exp( eta_alpha_h  * V_m_init )
+        beta_h_init  1/ms  = k_beta_h   * exp( eta_beta_h   * V_m_init )
+        alpha_l_init 1/ms  = k_alpha_l  * exp( eta_alpha_l  * V_m_init )
+        beta_l_init  1/ms  = k_beta_l   * exp( eta_beta_l   * V_m_init )
+        alpha_r_init 1/ms  = k_alpha_r  * exp( eta_alpha_r  * V_m_init )
+        beta_r_init  1/ms  = k_beta_r   * exp( eta_beta_r   * V_m_init )
+        alpha_n1_init 1/ms = k_alpha_n1 * exp( eta_alpha_n1 * V_m_init )
+        beta_n1_init  1/ms = k_beta_n1  * exp( eta_beta_n1  * V_m_init )
+        alpha_p1_init 1/ms = k_alpha_p1 * exp( eta_alpha_p1 * V_m_init )
+        beta_p1_init  1/ms = k_beta_p1  * exp( eta_beta_p1  * V_m_init )
+        alpha_n3_init 1/ms = k_alpha_n3 * exp( eta_alpha_n3 * V_m_init )
+        beta_n3_init  1/ms = k_beta_n3  * exp( eta_beta_n3  * V_m_init )
+        alpha_p3_init 1/ms = k_alpha_p3 * exp( eta_alpha_p3 * V_m_init )
+        beta_p3_init  1/ms = k_beta_p3  * exp( eta_beta_p3  * V_m_init )
+
+    input:
+        exc_spikes <- excitatory spike
+        inh_spikes <- inhibitory spike
+        I_stim pA <- continuous
+
+    output:
+        spike
+
+    update:
+        V_m_old = V_m
+        if refr_t > 0 ms:
+            integrate_odes(V_m, Inact_h, Act_m, Act_n1, Inact_p1, Act_n3, Inact_p3, Act_l, Inact_r, refr_t)
+        else:
+            integrate_odes(V_m, Inact_h, Act_m, Act_n1, Inact_p1, Act_n3, Inact_p3, Act_l, Inact_r)
+
+    onCondition(refr_t <= 0 ms and V_m > 0 mV and V_m_old > V_m):
+        # Soglia a 0 mV + massimo locale
+        refr_t = refr_T
+        emit_spike()
